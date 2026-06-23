@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="500" height="750" viewBox="0 0 500 750">
-  <rect width="500" height="750" fill="#1b1b1b" />
-  
-  <rect x="25" y="25" width="450" height="700" fill="none" stroke="#303030" stroke-width="4" stroke-dasharray="15,15" rx="14" />
-  
-  <text x="250" y="350" font-family="'Segoe UI', Roboto, sans-serif" font-size="80" fill="#444" text-anchor="middle">🎬</text>
-  
-  <text x="250" y="430" font-family="'Segoe UI', Roboto, sans-serif" font-size="26" font-weight="bold" fill="#666" text-anchor="middle">CAPA INDISPONÍVEL</text>
-</svg>
