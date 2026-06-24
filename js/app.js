@@ -1,5 +1,5 @@
 /* ==========================================================
-   1. SELEÇÃO DE ELEMENTOS DO DOM E VARIÁVEIS
+   1. SELEÇÃO DE ELEMENTOS DO DOM E VARIÁVEIS GERAIS
 ========================================================== */
 const formBusca = document.getElementById('form-busca');
 const inputBusca = document.getElementById('input-busca');
@@ -14,6 +14,7 @@ const modal = document.getElementById('modal-detalhes');
 const modalCorpo = document.getElementById('modal-corpo');
 const btnFecharModal = document.getElementById('fechar-modal');
 
+// Variáveis de controle de estado
 let paginaAtual = 1;
 let carregando = false;
 let temMaisResultados = true;
@@ -22,31 +23,35 @@ let generoAtual = '';
 let tipoAtual = 'movie'; 
 let modoAtual = 'home';
 
+// Cache em memória
 window.filmesCache = {};
-window.generosCache = {}; // 🌟 NOVO: Cache em memória para os gêneros
+window.generosCache = {}; 
 
-// Função para preencher dinamicamente a caixa de géneros (COM CACHE)
+// Preenche a caixa de seleção de géneros utilizando cache para poupar a API
 async function carregarGeneros() {
     const tipo = tipoBusca.value;
     
-    // Se o tipo selecionado ainda não estiver no cache, consome a API e guarda o resultado
     if (!window.generosCache[tipo]) {
-        console.log(`Gêneros de '${tipo}' não encontrados no cache. Buscando na API...`);
         window.generosCache[tipo] = await buscarGeneros(tipo);
-    } else {
-        console.log(`Gêneros de '${tipo}' carregados diretamente do cache! Poupando a API.`);
     }
 
     const generos = window.generosCache[tipo] || [];
-    
     filtroGenero.innerHTML = '<option value="">Todos os Géneros</option>';
+    
     generos.forEach(g => {
         filtroGenero.innerHTML += `<option value="${g.id}">${g.name}</option>`;
     });
 }
 
+// Função para reiniciar a animação de entrada do CSS (Fade-in)
+function animarMudancaPagina() {
+    gridFilmes.classList.remove('fade-in');
+    void gridFilmes.offsetWidth; // Força o navegador a reiniciar a animação
+    gridFilmes.classList.add('fade-in');
+}
+
 /* ==========================================================
-   2. SISTEMA DE PESQUISA (COMPLETO: SPAM PROTECT + OFFLINE + SPINNER)
+   2. SISTEMA DE PESQUISA PRINCIPAL
 ========================================================== */
 formBusca.addEventListener('submit', async (e) => {
     e.preventDefault(); 
@@ -55,23 +60,10 @@ formBusca.addEventListener('submit', async (e) => {
     const novoGenero = filtroGenero.value;
     const tipo = tipoBusca.value;
 
-    // 🌟 1. DESVIO DE ROTA: BUSCA OFFLINE NOS FAVORITOS
+    // Busca offline quando o utilizador está na aba de favoritos
     if (modoAtual === 'favoritos') {
-        console.log("Modo Favoritos: Fazendo busca offline sem gastar API!");
-        
-        // CORREÇÃO: Usar a função oficial que já sabe como ler os seus favoritos corretamente
-        let favoritosFiltrados = [];
-        if (typeof obterFavoritos === 'function') {
-            favoritosFiltrados = obterFavoritos();
-        } else {
-            // Prevenção extra
-            const guardados = JSON.parse(localStorage.getItem('favoritos')) || [];
-            favoritosFiltrados = guardados.length > 0 && typeof guardados[0] === 'object' 
-                ? guardados 
-                : guardados.map(id => window.filmesCache[id]).filter(f => f);
-        }
+        let favoritosFiltrados = typeof obterFavoritos === 'function' ? obterFavoritos() : [];
 
-        // Filtra pelo texto (Nome do filme/série)
         if (novoTermo) {
             favoritosFiltrados = favoritosFiltrados.filter(filme => {
                 const titulo = (filme.title || filme.name || "").toLowerCase();
@@ -79,7 +71,6 @@ formBusca.addEventListener('submit', async (e) => {
             });
         }
 
-        // Filtra pelo género (se selecionado)
         if (novoGenero) {
             favoritosFiltrados = favoritosFiltrados.filter(filme => 
                 filme.genre_ids && filme.genre_ids.includes(parseInt(novoGenero))
@@ -88,35 +79,31 @@ formBusca.addEventListener('submit', async (e) => {
 
         tituloSecao.textContent = `Favoritos encontrados: ${favoritosFiltrados.length}`;
         renderizarGrid(favoritosFiltrados, false, 'movie'); 
-        return; // Encerra aqui, não chama a API!
-    }
-
-    // 🛡️ 2. PROTEÇÃO DE API: IMPEDE BUSCAS REPETIDAS (Agora checa o TIPO também!)
-    if (novoTermo === termoAtual.toLowerCase() && novoGenero === generoAtual && tipo === tipoAtual && modoAtual === 'busca') {
-        console.log("Busca repetida evitada. Poupando a API!"); 
         return; 
     }
 
-    // 3. ATUALIZA AS VARIÁVEIS OFICIAIS
-    termoAtual = novoTermo;
-    generoAtual = novoGenero;
-    tipoAtual = tipo; // 🌟 NOVO: Salva o tipo para a próxima comparação
-    // 3. ATUALIZA AS VARIÁVEIS OFICIAIS
-    termoAtual = novoTermo;
-    generoAtual = novoGenero;
+    // Impede chamadas repetidas à API com os mesmos parâmetros
+    if (novoTermo === termoAtual.toLowerCase() && novoGenero === generoAtual && tipo === tipoAtual && modoAtual === 'busca') {
+        return; 
+    }
 
-    // Se o utilizador limpou tudo e clicou em buscar, volta para a Home
+    // Atualiza o estado da pesquisa
+    termoAtual = novoTermo;
+    generoAtual = novoGenero;
+    tipoAtual = tipo; 
+
+    // Retorna à Home se a busca for limpa
     if (!termoAtual && !generoAtual) {
         carregarHome();
         return;
     }
 
-    // ⏳ 4. PREPARA A INTERFACE (SPINNER E DISABLED)
+    // Prepara a interface (Loading state)
     const btnSubmit = formBusca.querySelector('button[type="submit"]');
     btnSubmit.disabled = true;
     btnSubmit.textContent = 'Aguarde...';
     
-    carregando = true; // Trava o menu de navegação
+    carregando = true;
     modoAtual = 'busca';
     paginaAtual = 1;
     temMaisResultados = true;
@@ -124,20 +111,19 @@ formBusca.addEventListener('submit', async (e) => {
     if (termoAtual) {
         tituloSecao.textContent = `Resultados para: "${termoAtual}"`;
     } else {
-        const nomeGenero = filtroGenero.options[filtroGenero.selectedIndex]?.text || 'Gênero';
+        const nomeGenero = filtroGenero.options[filtroGenero.selectedIndex]?.text || 'Género';
         tituloSecao.textContent = `A Explorar: ${nomeGenero} (${tipo === 'movie' ? 'Filmes' : 'Séries'})`;
     }
     
     gridFilmes.style.display = 'block'; 
     gridFilmes.className = '';
-    gridFilmes.innerHTML = '<div class="spinner"></div><p style="text-align:center; color:#888;">Buscando no banco de dados...</p>';
+    gridFilmes.innerHTML = '<div class="spinner"></div><p style="text-align:center; color:#888;">A buscar no banco de dados...</p>';
     
-    // 🌐 5. CHAMADA À API
+    // Requisição à API
     let resultados = [];
     try {
         if (termoAtual) {
             resultados = await buscarPorNome(termoAtual, tipo, paginaAtual);
-            // Filtro local pelo género caso o utilizador tenha pesquisado nome + género
             if (generoAtual) {
                 resultados = resultados.filter(f => f.genre_ids && f.genre_ids.includes(parseInt(generoAtual)));
             }
@@ -149,70 +135,27 @@ formBusca.addEventListener('submit', async (e) => {
         gridFilmes.innerHTML = '<p style="text-align:center; color:red;">Ocorreu um erro na busca.</p>';
     }
     
-    // 🎨 6. RENDERIZAÇÃO
+    // Renderização dos resultados
     gridFilmes.style.display = 'grid'; 
     gridFilmes.className = 'movie-grid';
 
     if (resultados && resultados.length > 0) {
-        // Ordena por popularidade ou nota antes de mostrar
         resultados.sort((a, b) => (b.popularity - a.popularity) || (b.vote_average - a.vote_average));
-        
-        // Guarda na memória cache para a aba de favoritos poder usar depois
         resultados.forEach(f => window.filmesCache[f.id] = f);
-        
         renderizarGrid(resultados, false, tipo);
     } else {
         temMaisResultados = false;
         renderizarGrid([], false, tipo);
     }
 
-    // 🔓 7. LIBERTAÇÃO DOS BOTÕES
+    // Restaura os botões
     btnSubmit.disabled = false;
     btnSubmit.textContent = 'Pesquisar';
-    carregando = false; // Liberta o menu de navegação
-});
-
-
-/* ==========================================================
-   EVENTOS DE NAVEGAÇÃO BLINDADOS
-========================================================== */
-
-btnHome.addEventListener('click', () => {
-    // Proteção de redundância
-    if (modoAtual === 'home') {
-        console.log("Já estamos na Home. Evitando requisições duplas!");
-        return; 
-    }
-
-    // Proteção de travamento (Se estiver no meio de uma busca)
-    if (carregando) {
-        console.log("Aguarde a operação atual terminar.");
-        return;
-    }
-
-    filtroGenero.value = ''; 
-    inputBusca.value = '';   
-    carregarHome();
-});
-
-btnFavoritos.addEventListener('click', () => {
-    // Proteção de redundância
-    if (modoAtual === 'favoritos') {
-        console.log("Já estamos nos Favoritos. Evitando re-renderização!");
-        return;
-    }
-
-    // Proteção de travamento (Se estiver no meio de uma busca)
-    if (carregando) {
-        console.log("Aguarde a operação atual terminar.");
-        return;
-    }
-
-    mostrarFavoritos();
+    carregando = false; 
 });
 
 /* ==========================================================
-   3. SENSOR DE SCROLL INFINITO (COM SUPORTE A GÉNEROS)
+   3. PAGINAÇÃO (SCROLL INFINITO)
 ========================================================== */
 window.addEventListener('scroll', () => {
     if (modoAtual !== 'busca' || carregando || !temMaisResultados) return;
@@ -260,7 +203,7 @@ async function carregarMaisResultados() {
 }
 
 /* ==========================================================
-   4. CARREGAR HOME PAGE (CARROSÉIS PROTEGIDOS E MODERNOS)
+   4. HOME PAGE E CARROSSEL
 ========================================================== */
 async function carregarHome() {
     modoAtual = 'home';
@@ -270,13 +213,12 @@ async function carregarHome() {
     gridFilmes.style.display = 'block'; 
     gridFilmes.className = '';
     
-    // Injeção do novo HTML do carrossel (Wrapper + Botões)
     gridFilmes.innerHTML = `
         <div class="secao-carrossel">
             <h3>🎬 Filmes Populares</h3>
             <div class="carrossel-wrapper">
                 <button class="btn-carrossel btn-prev hidden" aria-label="Voltar filmes">◀</button>
-                <div class="carrossel" id="carrossel-filmes"><p style="padding:20px;">Carregando filmes...</p></div>
+                <div class="carrossel" id="carrossel-filmes"><p style="padding:20px;">A carregar filmes...</p></div>
                 <button class="btn-carrossel btn-next hidden" aria-label="Avançar filmes">▶</button>
             </div>
         </div>
@@ -284,25 +226,28 @@ async function carregarHome() {
             <h3>📺 Séries Populares</h3>
             <div class="carrossel-wrapper">
                 <button class="btn-carrossel btn-prev hidden" aria-label="Voltar séries">◀</button>
-                <div class="carrossel" id="carrossel-series"><p style="padding:20px;">Carregando séries...</p></div>
+                <div class="carrossel" id="carrossel-series"><p style="padding:20px;">A carregar séries...</p></div>
                 <button class="btn-carrossel btn-next hidden" aria-label="Avançar séries">▶</button>
             </div>
         </div>
     `;
+
+    // Aplica a animação de entrada na página inicial
+    animarMudancaPagina();
 
     const [filmes, series] = await Promise.all([
         buscarPopulares('movie'),
         buscarPopulares('tv')
     ]);
 
-    // Renderização de Filmes
+    // Renderiza Filmes
     try {
         const containerFilmes = document.getElementById('carrossel-filmes');
         if (filmes && filmes.length > 0) {
             filmes.forEach(f => window.filmesCache[f.id] = f);
             containerFilmes.innerHTML = '';
             filmes.forEach(f => containerFilmes.innerHTML += criarCardHTML(f, 'movie'));
-            configurarBotoesCarrossel(containerFilmes); // Ativa o motor do carrossel
+            configurarBotoesCarrossel(containerFilmes); 
         } else {
             containerFilmes.innerHTML = '<p style="padding:10px; color:#888;">Nenhum filme encontrado.</p>';
         }
@@ -310,14 +255,14 @@ async function carregarHome() {
         console.error("Erro ao renderizar filmes:", erro);
     }
 
-    // Renderização de Séries
+    // Renderiza Séries
     try {
         const containerSeries = document.getElementById('carrossel-series');
         if (series && series.length > 0) {
             series.forEach(s => window.filmesCache[s.id] = s);
             containerSeries.innerHTML = '';
             series.forEach(s => containerSeries.innerHTML += criarCardHTML(s, 'tv'));
-            configurarBotoesCarrossel(containerSeries); // Ativa o motor do carrossel
+            configurarBotoesCarrossel(containerSeries); 
         } else {
             containerSeries.innerHTML = '<p style="padding:10px; color:#888;">Nenhuma série encontrada.</p>';
         }
@@ -326,9 +271,7 @@ async function carregarHome() {
     }
 }
 
-/* ==========================================================
-   LÓGICA INTELIGENTE DOS BOTÕES DO CARROSSEL
-========================================================== */
+// Lógica de navegação horizontal do carrossel
 function configurarBotoesCarrossel(carrossel) {
     const wrapper = carrossel.parentElement;
     const btnPrev = wrapper.querySelector('.btn-prev');
@@ -336,41 +279,23 @@ function configurarBotoesCarrossel(carrossel) {
 
     if (!btnPrev || !btnNext) return;
 
-    // Calcula e atualiza a visibilidade dos botões
     const atualizarBotoes = () => {
         const scrollLeft = carrossel.scrollLeft;
         const maxScroll = carrossel.scrollWidth - carrossel.clientWidth;
         
-        // Botão Esquerdo
-        if (scrollLeft <= 5) {
-            btnPrev.classList.add('hidden');
-        } else {
-            btnPrev.classList.remove('hidden');
-        }
-
-        // Botão Direito
-        if (scrollLeft >= maxScroll - 5) { // margem de 5px para prevenir bugs
-            btnNext.classList.add('hidden');
-        } else {
-            btnNext.classList.remove('hidden');
-        }
+        btnPrev.classList.toggle('hidden', scrollLeft <= 5);
+        btnNext.classList.toggle('hidden', scrollLeft >= maxScroll - 5);
     };
 
-    // Escutadores de eventos para o botão atualizar sozinho
     carrossel.addEventListener('scroll', atualizarBotoes);
     window.addEventListener('resize', atualizarBotoes);
-    
-    // Roda uma vez no início para checar o estado atual
     setTimeout(atualizarBotoes, 100); 
 
-    // Ação do Botão VOLTAR
     btnPrev.addEventListener('click', () => {
-        // Rola 80% da tela visível para dar a sensação de avançar "uma página", deixando 1 card de contexto
         const scrollAmount = carrossel.clientWidth * 0.8; 
         carrossel.scrollBy({ left: -scrollAmount, behavior: 'smooth' });
     });
 
-    // Ação do Botão AVANÇAR
     btnNext.addEventListener('click', () => {
         const scrollAmount = carrossel.clientWidth * 0.8; 
         carrossel.scrollBy({ left: scrollAmount, behavior: 'smooth' });
@@ -378,13 +303,15 @@ function configurarBotoesCarrossel(carrossel) {
 }
 
 /* ==========================================================
-   5. AUXILIARES DE RENDERIZAÇÃO
+   5. COMPONENTES E RENDERIZAÇÃO
 ========================================================== */
 function criarCardHTML(filme, tipo) {
     const titulo = filme.title || filme.name || "Sem título"; 
+    
+    // Tratamento da imagem (Fallback para o SVG local)
     const poster = filme.poster_path 
         ? `https://image.tmdb.org/t/p/w500${filme.poster_path}` 
-        : 'https://via.placeholder.com/500x750?text=Sem+Imagem';
+        : './images/sem-capa.svg';
     
     let favoritado = false;
     if (typeof eFavorito === 'function') {
@@ -393,8 +320,6 @@ function criarCardHTML(filme, tipo) {
     
     const textoBotao = favoritado ? 'Remover' : '⭐ Favoritar';
     const nota = filme.vote_average ? filme.vote_average.toFixed(1) : 'N/A';
-    
-    // NOVIDADE: Já carrega o botão com a cor certa se estiver nos favoritos
     const classeExtra = favoritado ? 'btn-remover' : '';
 
     return `
@@ -428,10 +353,10 @@ function renderizarGrid(filmes, append = false, tipoPadrao = 'movie') {
 }
 
 /* ==========================================================
-   6. MODAL INTELIGENTE
+   6. MODAL DE DETALHES
 ========================================================== */
 window.abrirModal = async function(id, tipo) {
-    modalCorpo.innerHTML = '<p style="text-align:center; padding:50px; color:#b5b5b5;">Carregando dados...</p>';
+    modalCorpo.innerHTML = '<p style="text-align:center; padding:50px; color:#b5b5b5;">A carregar dados...</p>';
     modal.classList.add('show');
 
     const filmeBase = window.filmesCache[id] || {};
@@ -443,6 +368,7 @@ window.abrirModal = async function(id, tipo) {
         console.warn("Falha ao obter dados detalhados da API.", erro);
     }
 
+    // Tratamento de dados base
     const titulo = dados?.title || dados?.name || filmeBase.title || filmeBase.name || "Sem título";
     const sinopse = dados?.overview || filmeBase.overview || "Nenhuma sinopse disponível.";
     const notaNum = dados?.vote_average ?? filmeBase.vote_average;
@@ -451,8 +377,9 @@ window.abrirModal = async function(id, tipo) {
     const ano = dataRaw.split('-')[0];
     
     const posterPath = dados?.poster_path || filmeBase.poster_path;
-    const poster = posterPath ? `https://image.tmdb.org/t/p/w500${posterPath}` : 'https://via.placeholder.com/500x750?text=Sem+Imagem';
+    const poster = posterPath ? `https://image.tmdb.org/t/p/w500${posterPath}` : './images/sem-capa.svg'; // Fallback Modal
 
+    // Tratamento de duração e temporadas (Filmes vs Séries)
     let duracao = 'N/D';
     let infoTv = ''; 
     if (tipo === 'movie') {
@@ -464,22 +391,18 @@ window.abrirModal = async function(id, tipo) {
         }
     }
 
-    const generos = dados?.genres?.length > 0 ? dados.genres.map(g => g.name).join(', ') : 'Gêneros n/d';
+    const generos = dados?.genres?.length > 0 ? dados.genres.map(g => g.name).join(', ') : 'Géneros n/d';
 
-    // Onde Assistir (Streaming) com links clicáveis
+    // Plataformas de Streaming
     let htmlStreaming = '<p style="font-size:13px; color:#888;">Não disponível por assinatura no momento.</p>';
-    
     if (dados && dados['watch/providers'] && dados['watch/providers'].results) {
-        // Tenta pegar os provedores do Brasil (BR), se não tiver tenta Portugal (PT)
         const provedoresRegiao = dados['watch/providers'].results.BR || dados['watch/providers'].results.PT;
         
         if (provedoresRegiao && provedoresRegiao.flatrate && provedoresRegiao.flatrate.length > 0) {
-            // O TMDB devolve um link oficial e seguro que leva direto para a plataforma certa
             const linkPlataforma = provedoresRegiao.link; 
             
             htmlStreaming = '<div class="streaming-container">';
             provedoresRegiao.flatrate.forEach(p => {
-                // Trocamos a <div> por uma tag <a> (link)
                 htmlStreaming += `
                     <a href="${linkPlataforma}" target="_blank" rel="noopener noreferrer" class="streaming-provider" title="Assistir no ${p.provider_name}">
                         <img src="https://image.tmdb.org/t/p/w92${p.logo_path}" alt="${p.provider_name}">
@@ -491,6 +414,7 @@ window.abrirModal = async function(id, tipo) {
         }
     }
 
+    // Elenco
     let htmlElenco = '';
     const elenco = dados?.credits?.cast?.slice(0, 5) || [];
     if (elenco.length > 0) {
@@ -502,6 +426,7 @@ window.abrirModal = async function(id, tipo) {
         htmlElenco += '</div>';
     }
 
+    // Trailer
     let htmlTrailer = '';
     const videos = dados?.videos?.results || [];
     const trailerOficial = videos.find(v => v.type === 'Trailer' && v.site === 'YouTube') || videos.find(v => v.site === 'YouTube');
@@ -509,18 +434,20 @@ window.abrirModal = async function(id, tipo) {
         htmlTrailer = `<h3 class="modal-section-title">Trailer Oficial</h3><div class="video-container"><iframe src="https://www.youtube.com/embed/${trailerOficial.key}" allowfullscreen></iframe></div>`;
     }
 
+    // Recomendações
     let htmlRecs = '';
     const recomendados = dados?.recommendations?.results?.slice(0, 4) || [];
     if (recomendados.length > 0) {
         htmlRecs += '<h3 class="modal-section-title">Títulos Semelhantes</h3><div class="recs-container">';
         recomendados.forEach(rec => {
-            const capaRec = rec.poster_path ? `https://image.tmdb.org/t/p/w342${rec.poster_path}` : 'https://via.placeholder.com/342x513?text=Sem+Capa';
+            const capaRec = rec.poster_path ? `https://image.tmdb.org/t/p/w342${rec.poster_path}` : './images/sem-capa.svg'; // Fallback Recomendações
             const tituloRec = rec.title || rec.name;
             htmlRecs += `<div class="rec-card"><img src="${capaRec}" alt="${tituloRec}"><p title="${tituloRec}">${tituloRec}</p></div>`;
         });
         htmlRecs += '</div>';
     }
 
+    // Estrutura final do Modal
     modalCorpo.innerHTML = `
         <div class="modal-layout">
             <div class="modal-esquerda">
@@ -536,7 +463,7 @@ window.abrirModal = async function(id, tipo) {
                     <span>⏱️ ${duracao}</span>
                     ${infoTv}
                 </div>
-                <p style="font-size:13px; color:#b5b5b5; margin-bottom:15px;"><strong>Gêneros:</strong> ${generos}</p>
+                <p style="font-size:13px; color:#b5b5b5; margin-bottom:15px;"><strong>Géneros:</strong> ${generos}</p>
                 <p class="sinopse">${sinopse}</p>
             </div>
         </div>
@@ -546,35 +473,55 @@ window.abrirModal = async function(id, tipo) {
     `;
 };
 
+// Fechamento do Modal
 function fecharModal() {
     const iframe = modalCorpo.querySelector('iframe');
     if (iframe) iframe.src = ''; 
     modal.classList.remove('show');
 }
+
 btnFecharModal.addEventListener('click', fecharModal);
 window.addEventListener('click', (e) => { if (e.target === modal) fecharModal(); });
 
 /* ==========================================================
-   7. GESTÃO DE FAVORITOS (MELHORADA COM UPDATE EM TEMPO REAL)
+   7. GESTÃO DE FAVORITOS
 ========================================================== */
 window.lidarComFavoritoNoId = function(id, tipo, botao) {
     const filme = window.filmesCache[id];
     if (!filme) return;
 
+    // Se estiver na aba de favoritos, faz a remoção OTIMIZADA
+    if (modoAtual === 'favoritos') {
+        const cardElement = botao.closest('.card'); 
+        
+        if (cardElement) {
+            cardElement.classList.add('card-removendo');
+            
+            setTimeout(() => {
+                alternarFavorito(filme); // Remove do LocalStorage
+                cardElement.remove();    // Remove SÓ este card do HTML (Performance instantânea)
+                
+                // Se o utilizador removeu o ÚLTIMO favorito da lista, recarrega a tela para mostrar a mensagem de vazio
+                const favoritosRestantes = typeof obterFavoritos === 'function' ? obterFavoritos() : [];
+                if (favoritosRestantes.length === 0) {
+                    mostrarFavoritos();
+                }
+            }, 350);
+            return;
+        }
+    }
+
+    // Código original para a Home ou Busca Geral
     alternarFavorito(filme); 
     
-    if (modoAtual === 'favoritos') {
-        mostrarFavoritos();
-    } else if (botao) {
+    if (botao) {
         const favoritado = eFavorito(id);
         botao.textContent = favoritado ? 'Remover' : '⭐ Favoritar';
         
-        // NOVIDADE: Motor da Animação
         botao.classList.remove('animar-favorito'); 
-        void botao.offsetWidth; // "Truque mágico" do CSS/JS que força o navegador a reiniciar a animação
+        void botao.offsetWidth; 
         botao.classList.add('animar-favorito');
 
-        // Alterna entre o botão Amarelo e o botão "Remover"
         if (favoritado) {
             botao.classList.add('btn-remover');
         } else {
@@ -589,6 +536,9 @@ function mostrarFavoritos() {
     gridFilmes.style.display = 'grid'; 
     gridFilmes.className = 'movie-grid';
     
+    // Aplica a animação de entrada na aba Favoritos
+    animarMudancaPagina();
+    
     if (typeof obterFavoritos === 'function') {
         const favoritos = obterFavoritos(); 
         favoritos.forEach(f => window.filmesCache[f.id] = f); 
@@ -599,62 +549,48 @@ function mostrarFavoritos() {
 }
 
 /* ==========================================================
-   8. EVENTOS INICIAIS E DE NAVEGAÇÃO
+   8. EVENTOS GERAIS E NAVEGAÇÃO
 ========================================================== */
 window.addEventListener('DOMContentLoaded', () => {
-    carregarGeneros(); // Carrega os géneros ao abrir o site
+    carregarGeneros(); 
     carregarHome();
 });
 
-// NAVEGAÇÃO BLINDADA: HOME
 btnHome.addEventListener('click', () => {
-    if (modoAtual === 'home') return; 
-    if (carregando) return; // Proteção de travamento
+    if (modoAtual === 'home' || carregando) return; 
 
-    filtroGenero.value = ''; // Limpa o filtro
-    inputBusca.value = '';   // Limpa a busca
-    termoAtual = '';         // Reseta a variável de controle
-    generoAtual = '';        // Reseta a variável de controle
-    // tipoAtual = 'movie';  // (Opcional) Pode descomentar se quiser forçar a voltar para filmes ao clicar na Home
+    filtroGenero.value = ''; 
+    inputBusca.value = '';   
+    termoAtual = '';         
+    generoAtual = '';        
     carregarHome();
 });
 
-// NAVEGAÇÃO BLINDADA: FAVORITOS
 btnFavoritos.addEventListener('click', () => {
-    if (modoAtual === 'favoritos') return;
-    if (carregando) return; // Proteção de travamento
-
+    if (modoAtual === 'favoritos' || carregando) return;
     mostrarFavoritos();
 });
 
-// INTELIGÊNCIA DO TIPO DE BUSCA (Filmes/Séries)
 tipoBusca.addEventListener('change', async () => {
-    await carregarGeneros(); // Atualiza a lista no select (1 requisição inevitável e necessária)
+    await carregarGeneros(); 
     
-    // 1. Se já estamos na Home e a barra de busca/filtro está vazia: NÃO FAZ NADA!
-    // Fica silencioso, poupa a API e não recarrega os carrosséis à toa.
     if (modoAtual === 'home' && inputBusca.value === '' && filtroGenero.value === '') {
-        console.log("Select alterado na Home. Apenas atualizamos os gêneros sem gastar API extra!");
         return;
     }
 
-    // 2. Se estamos na aba Favoritos (que é offline), só filtra se tiver algo digitado/selecionado
     if (modoAtual === 'favoritos') {
         if (inputBusca.value !== '' || filtroGenero.value !== '') {
-            formBusca.dispatchEvent(new Event('submit')); // Dispara o submit que cairá no modo offline
+            formBusca.dispatchEvent(new Event('submit')); 
         }
         return;
     }
 
-    // 3. Se estava na tela de Busca, ou tem algo digitado, refaz a busca com a API para o novo tipo
     if (modoAtual === 'busca' || inputBusca.value !== '') {
         formBusca.dispatchEvent(new Event('submit'));
     }
 });
 
-// INTELIGÊNCIA DO FILTRO DE GÉNERO
 filtroGenero.addEventListener('change', () => {
-    // Se a caixa de texto estiver vazia, submete a pesquisa automaticamente ao trocar o género
     if (inputBusca.value === '') {
         formBusca.dispatchEvent(new Event('submit'));
     }
